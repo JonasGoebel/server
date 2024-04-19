@@ -328,6 +328,15 @@ check_unit_test
 kill $SERVER_PID
 wait $SERVER_PID
 
+# Check model namespacing label exists
+REPOS_DIR="${PWD}/model_namespacing_repos"
+SERVER_ARGS="--model-repository=${REPOS_DIR}/addsub_repo --model-repository=${REPOS_DIR}/subadd_repo --model-namespacing=true --allow-metrics=true"
+run_and_check_server
+python3 ${PYTHON_TEST} MetricsConfigTest.test_model_namespacing 2>&1 | tee ${CLIENT_LOG}
+check_unit_test
+kill $SERVER_PID
+wait $SERVER_PID
+
 ### Pending Request Count (Queue Size) Metric Behavioral Tests ###
 MODELDIR="${PWD}/queue_size_models"
 SERVER_ARGS="--model-repository=${MODELDIR} --log-verbose=1"
