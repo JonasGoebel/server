@@ -40,6 +40,7 @@ from mlflow.deployments import BaseDeploymentClient
 from mlflow.exceptions import MlflowException
 from mlflow.models import Model
 from mlflow.tracking.artifact_utils import _download_artifact_from_uri
+from mlflow.store.artifact.artifact_repository_registry import get_artifact_repository
 from mlflow_triton.config import Config
 from tritonclient.utils import (
     InferenceServerException,
@@ -85,6 +86,22 @@ class TritonPlugin(BaseDeploymentClient):
         logger.info("Triton model repo = {}".format(triton_model_repo))
 
         return triton_url, triton_model_repo
+    
+    def _get_model_version_from_uri(self, model_uri):
+        """
+        Returns the MLFlow model version
+        
+        :param model_uri: URI to the MLFlow registry where the model is downloaded
+        
+        :return: Model version (or None if version not available)
+        """
+        try:
+            model_repository = get_artifact_repository(model_uri)
+            if model_repository.model_version:
+                return model_repository.model_version
+            return None
+        except:
+            return None
 
     def create_deployment(self, name, model_uri, flavor=None, config=None):
         """
@@ -106,9 +123,12 @@ class TritonPlugin(BaseDeploymentClient):
                 % (name)
             )
 
+        # Get the MLFlow model version (if available)
+        model_version = self._get_model_version_from_uri(model_uri)
+
         # Get the path of the artifact
         path = Path(_download_artifact_from_uri(model_uri))
-        self._copy_files_to_triton_repo(path, name, flavor)
+        self._copy_files_to_triton_repo(path, name, flavor, model_version)
         self._generate_mlflow_meta_file(name, flavor, model_uri)
 
         try:
@@ -166,10 +186,13 @@ class TritonPlugin(BaseDeploymentClient):
 
         self.get_deployment(name)
 
+        # Get the MLFlow model version (if available)
+        model_version = self._get_model_version_from_uri(model_uri)
+
         # Get the path of the artifact
         path = Path(_download_artifact_from_uri(model_uri))
 
-        self._copy_files_to_triton_repo(path, name, flavor)
+        self._copy_files_to_triton_repo(path, name, flavor, model_version)
 
         self._generate_mlflow_meta_file(name, flavor, model_uri)
 
@@ -329,7 +352,7 @@ class TritonPlugin(BaseDeploymentClient):
 
         return mlflow_meta_dict
 
-    def _get_copy_paths(self, artifact_path, name, flavor):
+    def _get_copy_paths(self, artifact_path, name, flavor, model_version="1"):
         copy_paths = {}
         copy_paths["model_path"] = {}
         triton_deployment_dir = os.path.join(self.triton_model_repo, name)
@@ -363,7 +386,7 @@ class TritonPlugin(BaseDeploymentClient):
                         model_file = file.name
                         break
             copy_paths["model_path"]["from"] = os.path.join(artifact_path, model_file)
-            copy_paths["model_path"]["to"] = os.path.join(triton_deployment_dir, "1")
+            copy_paths["model_path"]["to"] = os.path.join(triton_deployment_dir, model_version)
 
             if config_file is not None:
                 copy_paths["config_path"]["from"] = os.path.join(
@@ -401,8 +424,8 @@ default_model_filename: "{}"
         else:
             raise Exception(f"path: {path} is not a valid path to a file or dir.")
 
-    def _copy_files_to_triton_repo(self, artifact_path, name, flavor):
-        copy_paths = self._get_copy_paths(artifact_path, name, flavor)
+    def _copy_files_to_triton_repo(self, artifact_path, name, flavor, model_version=None):
+        copy_paths = self._get_copy_paths(artifact_path, name, flavor, model_version)
         for key in copy_paths:
             if "s3" in self.server_config:
                 # copy model dir to s3 recursively
@@ -445,7 +468,7 @@ default_model_filename: "{}"
 
         if "s3" not in self.server_config:
             triton_deployment_dir = os.path.join(self.triton_model_repo, name)
-            version_folder = os.path.join(triton_deployment_dir, "1")
+            version_folder = os.path.join(triton_deployment_dir, model_version)
             os.makedirs(version_folder, exist_ok=True)
 
         return copy_paths
