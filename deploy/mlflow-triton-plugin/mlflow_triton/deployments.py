@@ -125,10 +125,12 @@ class TritonPlugin(BaseDeploymentClient):
 
         # Get the MLFlow model version (if available)
         model_version = self._get_model_version_from_uri(model_uri)
-
+        
+        copy_model_version = None if flavor == "triton" else model_version
+        
         # Get the path of the artifact
         path = Path(_download_artifact_from_uri(model_uri))
-        self._copy_files_to_triton_repo(path, name, flavor, model_version)
+        self._copy_files_to_triton_repo(path, name, flavor, copy_model_version)
         self._generate_mlflow_meta_file(name, flavor, model_uri)
 
         try:
@@ -361,7 +363,7 @@ class TritonPlugin(BaseDeploymentClient):
             # with proper model versions and version strategy, which may differ from
             # the versioning in MLFlow
             for file in artifact_path.iterdir():
-                if file.is_dir():
+                if file.is_dir() and file.name != "metadata":
                     copy_paths["model_path"]["from"] = file
                     break
             copy_paths["model_path"]["to"] = triton_deployment_dir
@@ -466,10 +468,10 @@ default_model_filename: "{}"
                         os.makedirs(copy_paths[key]["to"])
                     shutil.copy(copy_paths[key]["from"], copy_paths[key]["to"])
 
-        if "s3" not in self.server_config:
-            triton_deployment_dir = os.path.join(self.triton_model_repo, name)
-            version_folder = os.path.join(triton_deployment_dir, model_version)
-            os.makedirs(version_folder, exist_ok=True)
+        # if "s3" not in self.server_config:
+        #     triton_deployment_dir = os.path.join(self.triton_model_repo, name)
+        #     version_folder = os.path.join(triton_deployment_dir, model_version)
+        #     os.makedirs(version_folder, exist_ok=True)
 
         return copy_paths
 
@@ -510,11 +512,12 @@ default_model_filename: "{}"
                     )
                 )
 
-            model_file = glob.glob("{}/model*".format(triton_deployment_dir))
-            for file in model_file:
-                print("Model directory found: {}".format(file))
-                os.remove(file)
-                print("Model directory removed: {}".format(file))
+            model_file = glob.glob("{}".format(triton_deployment_dir))
+            for path in model_file:
+                print("Model directory found: {}".format(path))
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                print("Model directory removed: {}".format(path))
 
         # Delete mlflow meta file
         mlflow_meta_path = os.path.join(
